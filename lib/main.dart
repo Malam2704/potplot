@@ -238,7 +238,7 @@ class _CameraScreenState extends State<CameraScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Camera App with Map')),
+      appBar: AppBar(title: const Text('potPlot')),
       body: _currentPosition == null
           ? Center(
               child:
