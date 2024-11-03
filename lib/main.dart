@@ -4,6 +4,7 @@ import 'package:camera/camera.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,8 +45,10 @@ class _CameraScreenState extends State<CameraScreen> {
   late Future<void> _initializeControllerFuture;
   Timer? _timer;
 
-  // Set the interval time in seconds
   final int intervalSeconds = 2;
+  late GoogleMapController mapController;
+  LatLng _currentPosition =
+      LatLng(37.7749, -122.4194); // Default location (San Francisco)
 
   @override
   void initState() {
@@ -61,6 +64,8 @@ class _CameraScreenState extends State<CameraScreen> {
     _timer = Timer.periodic(Duration(seconds: intervalSeconds), (timer) {
       _takePictureAndSend();
     });
+
+    _getLocationUpdates();
   }
 
   @override
@@ -114,6 +119,26 @@ class _CameraScreenState extends State<CameraScreen> {
     return await Geolocator.getCurrentPosition();
   }
 
+  void _getLocationUpdates() {
+    Geolocator.getPositionStream().listen((Position position) {
+      setState(() {
+        _currentPosition = LatLng(position.latitude, position.longitude);
+      });
+      _centerMapOnLocation(); // Center map on location when it updates
+    });
+  }
+
+  void _centerMapOnLocation() {
+    mapController.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: _currentPosition,
+          zoom: 14.0,
+        ),
+      ),
+    );
+  }
+
   Future<void> _sendImageToApi(
       String imagePath, double latitude, double longitude) async {
     final uri = Uri.parse("http://98.11.205.187:45670/upload");
@@ -124,7 +149,6 @@ class _CameraScreenState extends State<CameraScreen> {
       contentType: MediaType('image', 'jpeg'),
     ));
 
-    // Add latitude and longitude to the request
     request.fields['latitude'] = latitude.toString();
     request.fields['longitude'] = longitude.toString();
 
@@ -143,10 +167,23 @@ class _CameraScreenState extends State<CameraScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Camera App')),
-      body: const Center(
-        // Optionally show a message or loading indicator
-        child: Text("Capturing photos at intervals..."),
+      appBar: AppBar(title: const Text('Camera App with Map')),
+      body: GoogleMap(
+        onMapCreated: (GoogleMapController controller) {
+          mapController = controller;
+          _centerMapOnLocation(); // Center on location when map is first created
+        },
+        initialCameraPosition: CameraPosition(
+          target: _currentPosition,
+          zoom: 14.0,
+        ),
+        markers: {
+          Marker(
+            markerId: MarkerId("currentLocation"),
+            position: _currentPosition,
+            infoWindow: InfoWindow(title: "You are here"),
+          ),
+        },
       ),
     );
   }
