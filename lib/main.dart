@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_compass/flutter_compass.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -47,8 +48,10 @@ class _CameraScreenState extends State<CameraScreen> {
 
   final int intervalSeconds = 2;
   late GoogleMapController mapController;
-  LatLng _currentPosition =
-      LatLng(37.7749, -122.4194); // Default location (San Francisco)
+  LatLng? _currentPosition; // Make this nullable to indicate no location yet
+  double _heading = 0.0; // Initial heading
+
+  BitmapDescriptor? _locationIcon; // Custom location icon
 
   @override
   void initState() {
@@ -60,12 +63,16 @@ class _CameraScreenState extends State<CameraScreen> {
     _initializeControllerFuture = _controller.initialize();
     _controller.setFlashMode(FlashMode.off);
 
+    // Load custom icon for the user's location
+    _loadLocationIcon();
+
     // Start the timer for automatic photo capture
     _timer = Timer.periodic(Duration(seconds: intervalSeconds), (timer) {
       _takePictureAndSend();
     });
 
-    _getLocationUpdates();
+    _getLocationUpdates(); // Start location updates and wait for the first location
+    _getHeadingUpdates(); // Start listening to heading updates
   }
 
   @override
@@ -75,18 +82,25 @@ class _CameraScreenState extends State<CameraScreen> {
     super.dispose();
   }
 
+  Future<void> _loadLocationIcon() async {
+    _locationIcon = await BitmapDescriptor.fromAssetImage(
+      ImageConfiguration(size: Size(48, 48)), // Customize size as needed
+      'assets/location_icon.png', // Replace with your icon asset
+    );
+  }
+
   Future<void> _takePictureAndSend() async {
+    if (_currentPosition == null) return; // Wait until location is available
+
     try {
       await _initializeControllerFuture;
 
       // Take the picture and get the file path
       final image = await _controller.takePicture();
 
-      // Get current location
-      Position position = await _getLocation();
-
       // Send the image and location data to the server
-      await _sendImageToApi(image.path, position.latitude, position.longitude);
+      await _sendImageToApi(
+          image.path, _currentPosition!.latitude, _currentPosition!.longitude);
     } catch (e) {
       print("Error taking picture: $e");
     }
@@ -119,14 +133,31 @@ class _CameraScreenState extends State<CameraScreen> {
     return await Geolocator.getCurrentPosition();
   }
 
-  void _getLocationUpdates() {
-    Geolocator.getPositionStream().listen((Position position) {
+  void _getLocationUpdates() async {
+    try {
+      Position position = await _getLocation();
       setState(() {
         _currentPosition = LatLng(position.latitude, position.longitude);
       });
-      mapController.animateCamera(
-        CameraUpdate.newLatLng(_currentPosition),
-      );
+
+      Geolocator.getPositionStream().listen((Position position) {
+        setState(() {
+          _currentPosition = LatLng(position.latitude, position.longitude);
+        });
+        mapController.animateCamera(
+          CameraUpdate.newLatLng(_currentPosition!),
+        );
+      });
+    } catch (e) {
+      print("Error getting location: $e");
+    }
+  }
+
+  void _getHeadingUpdates() {
+    FlutterCompass.events!.listen((CompassEvent event) {
+      setState(() {
+        _heading = event.heading ?? 0; // Get the heading or default to 0
+      });
     });
   }
 
@@ -159,22 +190,28 @@ class _CameraScreenState extends State<CameraScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Camera App with Map')),
-      body: GoogleMap(
-        onMapCreated: (GoogleMapController controller) {
-          mapController = controller;
-        },
-        initialCameraPosition: CameraPosition(
-          target: _currentPosition,
-          zoom: 14.0,
-        ),
-        markers: {
-          Marker(
-            markerId: MarkerId("currentLocation"),
-            position: _currentPosition,
-            infoWindow: InfoWindow(title: "You are here"),
-          ),
-        },
-      ),
+      body: _currentPosition == null
+          ? Center(
+              child:
+                  CircularProgressIndicator()) // Show loading until location is available
+          : GoogleMap(
+              onMapCreated: (GoogleMapController controller) {
+                mapController = controller;
+              },
+              initialCameraPosition: CameraPosition(
+                target: _currentPosition!,
+                zoom: 14.0,
+              ),
+              markers: {
+                Marker(
+                  markerId: MarkerId("currentLocation"),
+                  position: _currentPosition!,
+                  icon: _locationIcon ?? BitmapDescriptor.defaultMarker,
+                  rotation: _heading, // Rotate marker based on heading
+                  anchor: Offset(0.5, 0.5), // Center the icon
+                ),
+              },
+            ),
     );
   }
 }
