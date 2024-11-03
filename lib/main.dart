@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:camera/camera.dart';
 import 'package:http/http.dart' as http;
+import 'dart:convert'; // For JSON decoding
 import 'package:http_parser/http_parser.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -52,6 +53,7 @@ class _CameraScreenState extends State<CameraScreen> {
   double _heading = 0.0; // Initial heading
 
   BitmapDescriptor? _locationIcon; // Custom location icon
+  Set<Marker> _potholeMarkers = {}; // Markers for potholes
 
   @override
   void initState() {
@@ -140,6 +142,9 @@ class _CameraScreenState extends State<CameraScreen> {
         _currentPosition = LatLng(position.latitude, position.longitude);
       });
 
+      // Fetch potholes nearby
+      _fetchNearbyPotholes();
+
       Geolocator.getPositionStream().listen((Position position) {
         setState(() {
           _currentPosition = LatLng(position.latitude, position.longitude);
@@ -147,6 +152,9 @@ class _CameraScreenState extends State<CameraScreen> {
         mapController.animateCamera(
           CameraUpdate.newLatLng(_currentPosition!),
         );
+
+        // Fetch nearby potholes again based on the updated location
+        _fetchNearbyPotholes();
       });
     } catch (e) {
       print("Error getting location: $e");
@@ -159,6 +167,47 @@ class _CameraScreenState extends State<CameraScreen> {
         _heading = event.heading ?? 0; // Get the heading or default to 0
       });
     });
+  }
+
+  Future<void> _fetchNearbyPotholes() async {
+    if (_currentPosition == null) return;
+
+    final url = Uri.parse("http://98.11.205.187:45670/nearby");
+    final response = await http.get(url.replace(queryParameters: {
+      'latitude': _currentPosition!.latitude.toString(),
+      'longitude': _currentPosition!.longitude.toString(),
+    }));
+
+    if (response.statusCode == 200) {
+      // Decode the JSON response
+      final Map<String, dynamic> data = json.decode(response.body);
+
+      // Ensure the response has a 'potholes' key that is a list
+      if (data.containsKey('nearby_potholes') &&
+          data['nearby_potholes'] is List) {
+        List<dynamic> potholes = data['nearby_potholes'];
+
+        Set<Marker> markers = potholes.map<Marker>((item) {
+          final lat = item['latitude'];
+          final lng = item['longitude'];
+          return Marker(
+            markerId: MarkerId("pothole_${lat}_$lng"),
+            position: LatLng(lat, lng),
+            infoWindow: InfoWindow(title: "Pothole"),
+            icon:
+                BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+          );
+        }).toSet();
+
+        setState(() {
+          _potholeMarkers = markers;
+        });
+      } else {
+        print("Invalid data format: 'potholes' key is missing or not a list.");
+      }
+    } else {
+      print("Failed to load nearby potholes: ${response.statusCode}");
+    }
   }
 
   Future<void> _sendImageToApi(
@@ -210,6 +259,7 @@ class _CameraScreenState extends State<CameraScreen> {
                   rotation: _heading, // Rotate marker based on heading
                   anchor: Offset(0.5, 0.5), // Center the icon
                 ),
+                ..._potholeMarkers, // Add pothole markers
               },
             ),
     );
