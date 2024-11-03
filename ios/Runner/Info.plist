@@ -8,6 +8,8 @@
 	<string>This app requires access to the camera to take photos.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>This app requires access to the mircophone to take photos.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This app requires access to your location to provide location-based services.</string>
 	<key>CFBundleDisplayName</key>
 	<string>Flut Potplot</string>
 	<key>CFBundleExecutable</key>

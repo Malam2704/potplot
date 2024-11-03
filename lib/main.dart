@@ -1,11 +1,9 @@
-import 'dart:ffi';
-
 import 'package:flutter/material.dart';
 import 'dart:async';
-import 'dart:io';
 import 'package:camera/camera.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
+import 'package:geolocator/geolocator.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -47,7 +45,7 @@ class _CameraScreenState extends State<CameraScreen> {
   Timer? _timer;
 
   // Set the interval time in seconds
-  final int intervalSeconds = 1500;
+  final int intervalSeconds = 2;
 
   @override
   void initState() {
@@ -60,7 +58,7 @@ class _CameraScreenState extends State<CameraScreen> {
     _controller.setFlashMode(FlashMode.off);
 
     // Start the timer for automatic photo capture
-    _timer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+    _timer = Timer.periodic(Duration(seconds: intervalSeconds), (timer) {
       _takePictureAndSend();
     });
   }
@@ -79,15 +77,46 @@ class _CameraScreenState extends State<CameraScreen> {
       // Take the picture and get the file path
       final image = await _controller.takePicture();
 
-      // Send the image to the server
-      await _sendImageToApi(image.path);
+      // Get current location
+      Position position = await _getLocation();
+
+      // Send the image and location data to the server
+      await _sendImageToApi(image.path, position.latitude, position.longitude);
     } catch (e) {
       print("Error taking picture: $e");
     }
   }
 
-  Future<void> _sendImageToApi(String imagePath) async {
-    final uri = Uri.parse("http://98.11.205.187:6699/upload");
+  Future<Position> _getLocation() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    // Check if location services are enabled
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      throw Exception('Location services are disabled.');
+    }
+
+    // Request location permissions if not already granted
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        throw Exception('Location permissions are denied');
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      throw Exception('Location permissions are permanently denied.');
+    }
+
+    // Get current location
+    return await Geolocator.getCurrentPosition();
+  }
+
+  Future<void> _sendImageToApi(
+      String imagePath, double latitude, double longitude) async {
+    final uri = Uri.parse("http://98.11.205.187:45670/upload");
     final request = http.MultipartRequest("POST", uri);
     request.files.add(await http.MultipartFile.fromPath(
       'image',
@@ -95,10 +124,14 @@ class _CameraScreenState extends State<CameraScreen> {
       contentType: MediaType('image', 'jpeg'),
     ));
 
+    // Add latitude and longitude to the request
+    request.fields['latitude'] = latitude.toString();
+    request.fields['longitude'] = longitude.toString();
+
     try {
       final response = await request.send();
       if (response.statusCode == 200) {
-        print("Image uploaded successfully");
+        print("Image uploaded successfully with location data");
       } else {
         print("Failed to upload image: ${response.statusCode}");
       }
@@ -111,15 +144,9 @@ class _CameraScreenState extends State<CameraScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Camera App')),
-      body: FutureBuilder<void>(
-        future: _initializeControllerFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.done) {
-            return CameraPreview(_controller);
-          } else {
-            return const Center(child: CircularProgressIndicator());
-          }
-        },
+      body: const Center(
+        // Optionally show a message or loading indicator
+        child: Text("Capturing photos at intervals..."),
       ),
     );
   }
