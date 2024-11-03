@@ -124,19 +124,10 @@ class _CameraScreenState extends State<CameraScreen> {
       setState(() {
         _currentPosition = LatLng(position.latitude, position.longitude);
       });
-      _centerMapOnLocation(); // Center map on location when it updates
+      mapController.animateCamera(
+        CameraUpdate.newLatLng(_currentPosition),
+      );
     });
-  }
-
-  void _centerMapOnLocation() {
-    mapController.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: _currentPosition,
-          zoom: 14.0,
-        ),
-      ),
-    );
   }
 
   Future<void> _sendImageToApi(
@@ -171,7 +162,6 @@ class _CameraScreenState extends State<CameraScreen> {
       body: GoogleMap(
         onMapCreated: (GoogleMapController controller) {
           mapController = controller;
-          _centerMapOnLocation(); // Center on location when map is first created
         },
         initialCameraPosition: CameraPosition(
           target: _currentPosition,
